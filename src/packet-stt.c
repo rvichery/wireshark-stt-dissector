@@ -36,16 +36,23 @@
  */
 #define TCP_PORT_STT  7471 
 
-void proto_register_stt(void);
-void proto_reg_handoff_stt(void);
-
-
 #define STT_PCP_MASK    0xE000
 #define STT_V_MASK      0x1000
 #define STT_VLANID_MASK 0x0FFF
+#define NO_MASK         0x0000
+#define FLAG_B0_MASK    0x0001
+#define FLAG_B1_MASK    0x0002
+#define FLAG_B2_MASK    0x0004
+#define FLAG_B3_MASK    0x0008
+#define FLAG_B4_MASK    0x0010
+#define FLAG_B5_MASK    0x0020
+#define FLAG_B6_MASK    0x0040
+#define FLAG_B7_MASK    0x0080
+
+void proto_register_stt(void);
+void proto_reg_handoff_stt(void);
 
 static int proto_stt = -1;
-
 
 static int hf_stt_version = -1;
 static int hf_stt_flags = -1;
@@ -66,10 +73,8 @@ static int hf_stt_vlan_id= -1;
 static int hf_stt_context_id = -1;
 static int hf_stt_padding = -1;
 
-
 static int ett_stt = -1;
 static int ett_stt_flgs = -1;
-
 
 static dissector_handle_t eth_handle;
 
@@ -105,33 +110,46 @@ dissect_stt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
    +-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+-+                               +
    |                                                               |
 */
+    if (stt_tree) {
+        proto_tree_add_item(stt_tree, hf_stt_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset++;
 
-    flg_item = proto_tree_add_item(stt_tree, hf_stt_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
-    flg_tree = proto_item_add_subtree(flg_item, ett_stt_flgs);
+        flg_item = proto_tree_add_item(stt_tree, hf_stt_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+        flg_tree = proto_item_add_subtree(flg_item, ett_stt_flgs);
 
-    proto_tree_add_item(flg_tree, hf_stt_flag_b7, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b6, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b5, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b4, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b3, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b2, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b1, tvb, offset, 1, ENC_BIG_ENDIAN);
-    proto_tree_add_item(flg_tree, hf_stt_flag_b0, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset++;
+        proto_tree_add_item(flg_tree, hf_stt_flag_b7, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b6, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b5, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b4, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b3, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b2, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b1, tvb, offset, 1, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_flag_b0, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset++;
 
-    proto_tree_add_item(stt_tree, hf_stt_reserved_24, tvb, offset, 3, ENC_BIG_ENDIAN);
-    offset+=3;
+        proto_tree_add_item(stt_tree, hf_stt_l4_offset, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset ++;
 
-    proto_tree_add_item(stt_tree, hf_stt_vni, tvb, offset, 3, ENC_BIG_ENDIAN);
-    offset+=3;
+        proto_tree_add_item(stt_tree, hf_stt_reserved_8, tvb, offset, 1, ENC_BIG_ENDIAN);
+        offset ++;
 
+        proto_tree_add_item(stt_tree, hf_stt_max_seg_size, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
 
-    proto_tree_add_item(stt_tree, hf_stt_reserved_8, tvb, offset, 1, ENC_BIG_ENDIAN);
-    offset++;
+        proto_tree_add_item(flg_tree, hf_stt_pcp, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_v, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(flg_tree, hf_stt_vlan_id, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
 
-    next_tvb = tvb_new_subset_remaining(tvb, offset);
-    call_dissector(eth_handle, next_tvb, pinfo, tree);
+        proto_tree_add_item(stt_tree, hf_stt_context_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+        offset += 8;
 
+        proto_tree_add_item(stt_tree, hf_stt_padding, tvb, offset, 2, ENC_BIG_ENDIAN);
+        offset += 2;
+
+        next_tvb = tvb_new_subset_remaining(tvb, offset);
+        call_dissector(eth_handle, next_tvb, pinfo, tree);
+    }
 }
 
 
@@ -142,85 +160,109 @@ proto_register_stt(void)
     static hf_register_info hf[] = {
         { &hf_stt_version,
           { "Version", "stt.version",
-            FT_UINT8, BASE_DEC, NULL, 0x00,
+            FT_UINT8, BASE_DEC, NULL, NO_MASK,
             NULL, HFILL
           },
         },
         { &hf_stt_flags,
           { "Flags", "stt.flags",
-            FT_BOOLEAN, 8, NULL, 0x00,
+            FT_BOOLEAN, 8, NULL, NO_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b7,
-          { "Flags", "stt.flags.b7",
-            FT_BOOLEAN, 8, NULL, 0x80,
+          { "Unused flag", "stt.flags.b7",
+            FT_BOOLEAN, 8, NULL, FLAG_B7_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b6,
-          { "Flags", "stt.flags.b6",
-            FT_BOOLEAN, 8, NULL, 0x40,
+          { "Unused flag", "stt.flags.b6",
+            FT_BOOLEAN, 8, NULL, FLAG_B6_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b5,
-          { "Flags", "stt.flags.b5",
-            FT_BOOLEAN, 8, NULL, 0x20,
+          { "Unused flag", "stt.flags.b5",
+            FT_BOOLEAN, 8, NULL, FLAG_B5_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b4,
-          { "Flags", "stt.flags.b4",
-            FT_BOOLEAN, 8, NULL, 0x10,
+          { "Unused flag", "stt.flags.b4",
+            FT_BOOLEAN, 8, NULL, FLAG_B4_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b3,
-          { "Flags", "stt.flags.b3",
-            FT_BOOLEAN, 8, NULL, 0x08,
+          { "TCP payload", "stt.flags.b3",
+            FT_BOOLEAN, 8, NULL, FLAG_B3_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b2,
-          { "Flags", "stt.flags.b2",
-            FT_BOOLEAN, 8, NULL, 0x04,
+          { "IP version", "stt.flags.b2",
+            FT_BOOLEAN, 8, NULL, FLAG_B2_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b1,
-          { "Flags", "stt.flags.b4",
-            FT_BOOLEAN, 8, NULL, 0x02,
+          { "Checksum partial", "stt.flags.b4",
+            FT_BOOLEAN, 8, NULL, FLAG_B1_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_flag_b0,
-          { "Flags", "stt.flags.b0",
-            FT_BOOLEAN, 8, NULL, 0x01,
+          { "Checksum verified", "stt.flags.b0",
+            FT_BOOLEAN, 8, NULL, FLAG_B0_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_l4_offset,
           { "L4 Offset", "stt.l4offset",
-            FT_UINT8, BASE_DEC, NULL, 0x00,
+            FT_UINT8, BASE_DEC, NULL, NO_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_reserved_8,
           { "Reserved", "stt.reserved",
-            FT_UINT8, BASE_DEC, NULL, 0x00,
+            FT_UINT8, BASE_DEC, NULL, NO_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_max_seg_size,
           { "Max Segment Size", "stt.max_seg_size",
-            FT_UINT16, BASE_DEC, NULL, 0x00,
+            FT_UINT16, BASE_DEC, NULL, NO_MASK,
             NULL, HFILL,
           },
         },
         { &hf_stt_pcp,
-          { "Max Segment Size", "stt.max_seg_size",
+          { "PCP", "stt.pcp",
             FT_UINT16, BASE_DEC, NULL, STT_PCP_MASK,
+            NULL, HFILL,
+          },
+        },
+        { &hf_stt_v,
+          { "V", "stt.v",
+            FT_UINT16, BASE_DEC, NULL, STT_V_MASK,
+            NULL, HFILL,
+          },
+        },
+        { &hf_stt_vlan_id,
+          { "VLAN ID", "stt.vlan_id",
+            FT_UINT16, BASE_DEC, NULL, STT_VLANID_MASK,
+            NULL, HFILL,
+          },
+        },
+        { &hf_stt_context_id,
+          { "Context ID", "stt.context_id",
+            FT_UINT64, BASE_DEC, NULL, NO_MASK,
+            NULL, HFILL,
+          },
+        },
+        { &hf_stt_padding,
+          { "Padding", "stt.padding",
+            FT_UINT16, BASE_DEC, NULL, NO_MASK,
             NULL, HFILL,
           },
         },
@@ -239,7 +281,6 @@ proto_register_stt(void)
     /* Required function calls to register the header fields and subtrees used */
     proto_register_field_array(proto_stt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
-
 
 }
 
