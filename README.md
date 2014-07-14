@@ -43,6 +43,8 @@ dissectors/packet-stun.c
 
 * Compile wireshark
 
+You can speed up the build-times with the -j flag ;) (for example make -j4 for a quad core CPU)
+
 ```
 # ./configure
 # make
