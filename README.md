@@ -19,7 +19,7 @@ Wireshark Stateless Transport Tunneling dissector
 # cp wireshark-stt-dissector/src/packet-stt.c wireshark/epan/dissectors
 ```
 
-Edit wireshark/epan/dissectors/Makefile.common, add the following line after packet-stat.c and packet-stun.c:
+Edit wireshark/epan/dissectors/Makefile.common, add the following line between packet-stat.c and packet-stun.c:
 
 ```
 DISSECTOR_SRC = \
@@ -27,6 +27,17 @@ DISSECTOR_SRC = \
 packet-stats.c     \
 packet-stt.c       \
 packet-stun.c      \
+...
+```
+
+Edit wireshark/epan/CMakeLists.txt, add the following line between packet-stat.c and packet-stun.c:
+
+```
+set(DISSECTOR_SRC
+...
+dissectors/packet-stat.c
+dissectors/packet-stt.c
+dissectors/packet-stun.c
 ...
 ```
 
