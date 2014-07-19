@@ -29,12 +29,13 @@
 #include "config.h"
 
 #include <epan/packet.h>
+#include <epan/expert.h>
 
-/* IANA  ref: 
+/* IANA  ref:
  * http://www.iana.org/assignments/service-names-port-numbers/service-
- * names-port-numbers.xml 
+ * names-port-numbers.xml
  */
-#define TCP_PORT_STT  7471 
+#define TCP_PORT_STT  7471
 
 #define STT_PCP_MASK    0xE000
 #define STT_V_MASK      0x1000
@@ -76,6 +77,8 @@ static int hf_stt_padding = -1;
 static int ett_stt = -1;
 static int ett_stt_flgs = -1;
 
+static expert_field ei_stt_l4_offset = EI_INIT;
+
 static dissector_handle_t eth_handle;
 
 /* From Table G-2 of IEEE standard 802.1Q-2005 */
@@ -95,7 +98,7 @@ static void
 dissect_stt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 {
     proto_tree *stt_tree, *flg_tree;
-    proto_item *ti, *flg_item;
+    proto_item *ti, *flg_item, *l4_offset_item;
     tvbuff_t *next_tvb;
     guint8 flags, l4_offset;
     guint16 attributes;
@@ -105,7 +108,7 @@ dissect_stt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
     /* Make entry in Protocol column on summary display. */
     col_set_str(pinfo->cinfo, COL_PROTOCOL, "STT");
 
-    /* Clean previous TCP information because STT frames are encapsulated 
+    /* Clean previous TCP information because STT frames are encapsulated
     in a TCP-like header (to avoid DUP Ack, TCP Out-of-order, ...). */
     col_clear_fence(pinfo->cinfo, COL_INFO);
 
@@ -129,85 +132,75 @@ dissect_stt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
        |                                                               |
     */
 
-    if (stt_tree) {
+    /* Protocol version */
+    proto_tree_add_item(stt_tree, hf_stt_version, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
 
-        /* Protocol version */
-        proto_tree_add_item(stt_tree, hf_stt_version, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset++;
+    /* Flags tree */
+    flg_item = proto_tree_add_item(stt_tree, hf_stt_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
+    flg_tree = proto_item_add_subtree(flg_item, ett_stt_flgs);
 
-        /* Flags tree */
-        flg_item = proto_tree_add_item(stt_tree, hf_stt_flags, tvb, offset, 1, ENC_BIG_ENDIAN);
-        flg_tree = proto_item_add_subtree(flg_item, ett_stt_flgs);
+    /* Flags */
+    flags = tvb_get_guint8(tvb, offset);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b7, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b6, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b5, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b4, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b3, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b2, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b1, tvb, offset, 1, ENC_BIG_ENDIAN);
+    proto_tree_add_item(flg_tree, hf_stt_flag_b0, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset++;
 
-        /* Flags */
-        flags = tvb_get_guint8(tvb, offset);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b7, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b6, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b5, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b4, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b3, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b2, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b1, tvb, offset, 1, ENC_BIG_ENDIAN);
-        proto_tree_add_item(flg_tree, hf_stt_flag_b0, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset++;
-
-        /* Layer 4 offset */
-        l4_offset = tvb_get_guint8(tvb, offset);
-        /* Check if offset != 0 when encapsulated packet is TCP */
-        if ( (flags & FLAG_B3_MASK) && (l4_offset != 0) ) {
-            proto_tree_add_item(stt_tree, hf_stt_l4_offset, tvb, offset, 1, ENC_BIG_ENDIAN);
-        }
-        /* Check if offset equals 0 when encapsulated packet is not TCP */
-        else if ( !(flags & FLAG_B3_MASK) && (l4_offset == 0) ) {
-            proto_tree_add_uint_format(stt_tree, hf_stt_l4_offset, tvb, offset, 1, l4_offset, "L4 Offset: %u (encapsulated packet is NOT TCP)", l4_offset);
-        }
-        /* Display an error if offset is != 0 when encapsulated packet is NOT TCP */
-        else if ( !(flags & FLAG_B3_MASK) && (l4_offset != 0) ) {
-            proto_tree_add_uint_format(stt_tree, hf_stt_l4_offset, tvb, offset, 1, l4_offset, "L4 Offset: %u [Incorrect, should be 0 when encapsulated packet is NOT TCP]", l4_offset);
-        }
-        /* Display an error if offset equals 0 when encapsulated packet is TCP */
-        else {
-            proto_tree_add_uint_format(stt_tree, hf_stt_l4_offset, tvb, offset, 1, l4_offset, "L4 Offset: %u [Incorrect, should be greater than 0 when encapsulated packet is TCP]", l4_offset);
-        }
-        offset ++;
-
-        /* Reserved field (1 byte). MUST be 0 on transmission, 
-        ignored on receipt. */
-        proto_tree_add_item(stt_tree, hf_stt_reserved_8, tvb, offset, 1, ENC_BIG_ENDIAN);
-        offset ++;
-
-        /* Maximum Segment Size. MUST be 0 if segmentation offload 
-        is not in use. */
-        proto_tree_add_item(stt_tree, hf_stt_mss, tvb, offset, 2, ENC_BIG_ENDIAN);
-        offset += 2;
-
-        /* Tag Control Information like header */
-        attributes = tvb_get_ntohs(tvb, offset);
-        /* if V flag is set, it indicates the presence of a valid
-        VLAN ID in the following field and valid PCP in the preceding
-        field. */
-        if (attributes & STT_V_MASK) {
-            /* Display priority code point and VLAN ID when V flag is set */
-            proto_item_append_text(ti, ", Priority: %u, VLAN ID: %u", (attributes >> 13), (attributes & STT_VLANID_MASK));
-            proto_tree_add_item(stt_tree, hf_stt_pcp, tvb, offset, 2, ENC_BIG_ENDIAN);
-            proto_tree_add_item(stt_tree, hf_stt_v, tvb, offset, 2, ENC_BIG_ENDIAN);
-            proto_tree_add_item(stt_tree, hf_stt_vlan_id, tvb, offset, 2, ENC_BIG_ENDIAN);
-        }
-        offset += 2;
-
-        /* Context ID */
-        context_id = tvb_get_ntoh64(tvb, offset);
-        proto_tree_add_item(stt_tree, hf_stt_context_id, tvb, offset, 8, ENC_BIG_ENDIAN);
-        proto_item_append_text(ti, ", Context ID: 0x%" G_GINT64_MODIFIER "x",context_id);
-        offset += 8;
-
-        /* Padding */
-        proto_tree_add_item(stt_tree, hf_stt_padding, tvb, offset, 2, ENC_NA);
-        offset += 2;
-
-        next_tvb = tvb_new_subset_remaining(tvb, offset);
-        call_dissector(eth_handle, next_tvb, pinfo, tree);
+    /* Layer 4 offset */
+    l4_offset = tvb_get_guint8(tvb, offset);
+    l4_offset_item = proto_tree_add_item(stt_tree, hf_stt_l4_offset, tvb, offset, 1, ENC_BIG_ENDIAN);
+    /* Display an error if offset is != 0 when encapsulated packet is NOT TCP */
+    if ( !(flags & FLAG_B3_MASK) && (l4_offset != 0) ) {
+        expert_add_info_format(pinfo, l4_offset_item, &ei_stt_l4_offset, "Incorrect offset, should be equals to zero");
     }
+    /* Display an error if offset equals 0 when encapsulated packet is TCP */
+    if ( (flags & FLAG_B3_MASK) && (l4_offset == 0) ) {
+        expert_add_info_format(pinfo, l4_offset_item, &ei_stt_l4_offset, "Incorrect offset, should be greater than zero");
+    }
+    offset ++;
+
+    /* Reserved field (1 byte). MUST be 0 on transmission,
+    ignored on receipt. */
+    proto_tree_add_item(stt_tree, hf_stt_reserved_8, tvb, offset, 1, ENC_BIG_ENDIAN);
+    offset ++;
+
+    /* Maximum Segment Size. MUST be 0 if segmentation offload
+    is not in use. */
+    proto_tree_add_item(stt_tree, hf_stt_mss, tvb, offset, 2, ENC_BIG_ENDIAN);
+    offset += 2;
+
+    /* Tag Control Information like header */
+    attributes = tvb_get_ntohs(tvb, offset);
+    /* if V flag is set, it indicates the presence of a valid
+    VLAN ID in the following field and valid PCP in the preceding
+    field. */
+    if (attributes & STT_V_MASK) {
+        /* Display priority code point and VLAN ID when V flag is set */
+        proto_item_append_text(ti, ", Priority: %u, VLAN ID: %u", (attributes >> 13), (attributes & STT_VLANID_MASK));
+        proto_tree_add_item(stt_tree, hf_stt_pcp, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(stt_tree, hf_stt_v, tvb, offset, 2, ENC_BIG_ENDIAN);
+        proto_tree_add_item(stt_tree, hf_stt_vlan_id, tvb, offset, 2, ENC_BIG_ENDIAN);
+    }
+    offset += 2;
+
+    /* Context ID */
+    context_id = tvb_get_ntoh64(tvb, offset);
+    proto_tree_add_item(stt_tree, hf_stt_context_id, tvb, offset, 8, ENC_BIG_ENDIAN);
+    proto_item_append_text(ti, ", Context ID: 0x%" G_GINT64_MODIFIER "x",context_id);
+    offset += 8;
+
+    /* Padding */
+    proto_tree_add_item(stt_tree, hf_stt_padding, tvb, offset, 2, ENC_NA);
+    offset += 2;
+
+    next_tvb = tvb_new_subset_remaining(tvb, offset);
+    call_dissector(eth_handle, next_tvb, pinfo, tree);
 }
 
 
@@ -215,6 +208,8 @@ dissect_stt(tvbuff_t *tvb, packet_info *pinfo, proto_tree *tree)
 void
 proto_register_stt(void)
 {
+    expert_module_t* expert_stt;
+
     static hf_register_info hf[] = {
         { &hf_stt_version,
           { "Version", "stt.version",
@@ -332,11 +327,22 @@ proto_register_stt(void)
         &ett_stt_flgs,
     };
 
+    static ei_register_info ei[] = {
+        { &ei_stt_l4_offset,
+          { "stt.l4_offset_bad.expert", PI_PROTOCOL,
+            PI_WARN, "Bad L4 Offset", EXPFILL
+          }
+        },
+    };
+
     /* Register the protocol name and description */
     proto_stt = proto_register_protocol("Stateless Transport Tunneling",
                                           "STT", "stt");
 
-    /* Required function calls to register the header fields and 
+    expert_stt = expert_register_protocol(proto_stt);
+    expert_register_field_array(expert_stt, ei, array_length(ei));
+
+    /* Required function calls to register the header fields and
     subtrees used */
     proto_register_field_array(proto_stt, hf, array_length(hf));
     proto_register_subtree_array(ett, array_length(ett));
@@ -350,10 +356,9 @@ proto_reg_handoff_stt(void)
 
     eth_handle = find_dissector("eth");
 
+    /* Need to be modified with a special hack in the TCP dissector. */
     stt_handle = create_dissector_handle(dissect_stt, proto_stt);
     dissector_add_uint("tcp.port", TCP_PORT_STT, stt_handle);
-    dissector_add_handle("tcp.port", stt_handle);  /* For 'Decode As' */
-
 }
 
 /*
